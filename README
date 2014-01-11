@@ -1,0 +1,95 @@
+This README describes the changes I made to the Minix 2.0.0 kernel so that it can run on my modified PC/XT motherboard BIOS; see https://sites.google.com/site/eyalabraham/pc-xt and https://github.com/eyalabraham/new-xt-bios.
+As a reference, I used the porting notes compiled by Bill Buzbee on his web site http://www.homebrewcpu.com/minix_port.htm for his home brew CPU MAGIC-1.
+
+This is really not a true 'port' of Minix, but rather an adaptation of Minix to my custom BIOS. The custom BIOS was required in this XT motherboard because of the missing HW and the HW I built to replace what was missing:
+- a 40GB IDE hard drive driven by a 8255. The hard drive hosts 2 x 1.44MB floppies and one 2GB fixed disk.
+- custom serial UART that replaces both the display adapter and keyboard; interface through minicom that is a VT100 emulator on Linux
+
+The motherboard does not have any serial not parallel interfaces, and has 640KB of RAM and is fully functional to boot and run DOS 6.22.
+
+I will log the activity and changes I make to the Minix kernel code and my BIOS in chronological order.
+
+
+January ?, 2014
+Monitor bring-up after cleaning INT10 warnings ...
+Kernel rebuild and image creation for full boot ...
+
+
+
+January 5, 2014
+
+Tested the diskette image 'changer' BIOS code and completed debugging; it is now functional and provides 4 on-the-fly changeable floppy-0 images.
+Because I did not yet adapt the Minix kernel to my BIOS, I can only attempt to load the Minix monitor program. This program behaves like a boot loader and loads from the first floppy MBR; I loaded the image and tried booting.
+Minix monitor booted! I got a bunch of unhandled INT10 function (INT10/12 and INT10/1A) warnings from my BIOS so I'm going to fix these and try again until I get a clean monitor bring-up.
+
+
+
+January 1. 2014
+
+From the installation test I did on a VM, I realized I needed the ability to swap floppy images - like swapping diskettes - in order to complete the installation of the Minix /usr directory; this directory holds the source code and UNIX tools.
+My custom BIOS only emulated two floppy drives in the form of images on the host hard drive. There was no possibility to live-swap images like one would swap diskettes. I decided to 'steal' the floppy count dip switches (SW.8 and SW.7) and use them as selectors of one of four floppy images stored on the host hard drive. This way, when prompted to change a diskette and hit Enter, I simply change the dip switches and a different emulated floppy image is mapped to the BIOS.
+The BIOS already has a monitor mode with functions that allow uploading images into the host hard drive and moving them around.
+
+
+
+December 29, 2013
+
+The first step was to complete an installation of Minix 2 so that I can figure out the 'logistics' of the installation. My XT does not have physical floppies, has emulated floppies in the form of images that re stored on the host hard drive.
+In order to install Minix, I needed to know how many images I need and then create this floppy images and load them into my host hard drive.
+To achieve this step, I chose to use a virtual machine running on VMware Player. This VM can use physical floppies - which my much newer machine does not even have - or present floppy image files.
+So I set out to create floppy images of the installation set for Minix 2 and installed on a VM <screen-shot>.
+
+
+
+An unorganized list of next steps
+
+Minix areas I inspected and think I need to change (initial list only):
+0.  Find a way to cross compile the kernel on my Linux machine and just drop it into a floppy image that I can then transfer and boot my XT with
+1.  Minix directly manipulates the video RAN, and does not seem to use BIOS int10
+    need to replace all direct video controller manipulation with INT10 or direct UART calls
+2.  Same as above, but as applied for keyboard handling
+3.  HDD driver in Minix kernel can use BIOS 13 calls or manipulate the controller directly
+    There seems to be a way to instruct the kernel to do ether one - so need to test this.
+4.  Keyboard and display, UART and hard drive interrupts are slightly different in my XT compared to a standard machine
+    need to find where the 8259 and interrupt vectoring 'lives' in Minix and adapt them
+5.  Check Bill Buzbee's list below and filter what relevant
+6.  remove support for HW that does not exist in my system and will likely not be there ever.
+    I think that this will save memory with a smaller kernel and reduce a bit of complexity
+
+List of areas mantioned by Bill Buzbee for his MAGIC-1, and his comments:
+-- note: stopped reading at date 6/3/07 of Bill's blog
+1.  Config.h - Add MAGIC1 machine and HOMEBREWCPU chip type.  For now, select 1 console, 1 rs232 line a 4 virtual terminals.
+2.  Const.h - Set click size 2048 and click shift to 11
+3.  jmp_buf.h, sys/sigcontext.h - Decide on sigcontext structure for Magic1
+4.  type.h - set lengths
+5.  a.out.h - replace with my new a.out.h
+6.  alloca.h - replace with the alloca code and .h that I'm currently using with lcc
+7.  setjmp.h - I need to implement this, and replace
+8.  stdarg.h - replace with my lcc/Magic-1 stdarg.h
+9.  stddef.h - Double-check it's identical what what I'm currently using
+10. time.h - Set to Magic-1's 64 hz. tick
+11. net/hton.h - Set to correct endianness
+12. at_wini.c - Use this as a basis.  Either heavily modify or rewrite.  Take a look at the bios_wini.c.  Might want to start with that as it busy-waits disk IO.
+13. clock.c - Add Magic-1 specific RTC control code
+14. const.h - lots of machine specific stuff.  Start with minimum set: K_STACK_BYTES, NR_MEMS, SETPSW
+15. dmp.c - Debugging stuff - make is useful for me.
+16. memory.c - Machine dependent stuff
+17. proc.c - Machine specific stuff; make sure message copying is fast (may need to go to assembly)
+18. proto.h - A bit of work here - need to declare machine specific functions
+19. rs232.c - A bit of worn here, but not that much.  Mostly generalize to support 16550 at a memory-mapped location in addition to x86's port-addressed scheme.
+20. system.c - Lots of work here, I think.
+21. table.c - Eliminate unnecessary tasks.
+22. tty.c - Lots of work
+23. type.h - Stack frame defines
+24. xt_wini.c - don't need this
+
+Useful things to remember
+-   compile Minix kernel on Minix machine: http://risenfall.wordpress.com/2008/09/22/howto-compile-minix-kernel/
+-   making a bootable floppy (see http://minix1.woodhull.com/manpages/man8/installboot.8.html)
+        1. make kernel, fs, mm, init and boot
+           running the 'make' in /usr/src/init runs all of the above and step 2 below
+        2. in the /usr/src/init directory run
+           'installboot -i image ./kernel/kernel ../mm/mm ../fs/fs init
+        3. copy 'boot' and image to floppy
+        4. in /usr/src/boot run 'installboot /dev/<fd?> ./bootblock boot'
+        5. set root directory: if the above was run AFTER the install then set the 'rootdev=hd1a' in monitor
