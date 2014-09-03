@@ -1,0 +1,37 @@
+#!/bin/bash
+#
+# getminix
+#
+#  tar and create disk image of minix souncs changes
+#
+DROPBOX=~/Dropbox/Minix
+MOUNT=/home/eyal/drv
+IMAGE=~/Documents/images/minix/minix-floppy.img
+IMGFILE=minix-floppy.img
+TARFILE=sys.tar
+
+# check if running in a git repository
+git status &> /dev/null
+if [ $? -eq 128 ]; then
+    echo "error in git or no git here."
+    exit
+fi
+
+# create an empty tar file
+tar -c -T /dev/null -f $TARFILE
+
+# fill tar file with changed source files
+for FILE in $(git status | awk '/modified/ {print $3}'); do
+    tar -r -f $TARFILE $FILE
+    echo added $FILE
+done
+
+# move tar to diskette image
+sudo mount -o loop, $IMAGE $MOUNT
+sleep 2
+cp $TARFILE $MOUNT
+sleep 2
+umount $MOUNT/$IMGFILE
+
+# move tar to Dropbox
+cp $TARFILE $DROPBOX

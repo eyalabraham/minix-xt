@@ -467,3 +467,4 @@ struct partition *entry;
   entry->sectors = w_wn->sectors;
 }
 #endif /* ENABLE_BIOS_WINI */
+

@@ -1,9 +1,17 @@
 #ifndef _CONFIG_H
 #define _CONFIG_H
 
+/* top level define for 'newbios' changes */
+#define NEWBIOS_MINIX 1
+
+#if (NEWBIOS_MINIX)
+#define OS_RELEASE "2.0"
+#define OS_VERSION "0.NB"
+#else
 /* Minix release and version numbers. */
 #define OS_RELEASE "2.0"
 #define OS_VERSION "0"
+#endif
 
 /* This file sets configuration parameters for the MINIX kernel, FS, and MM.
  * It is divided up into two main sections.  The first section contains
@@ -71,11 +79,11 @@
 
 /* Include or exclude device drivers.  Set to 1 to include, 0 to exclude. */
 #define ENABLE_NETWORKING  0	/* enable TCP/IP code */
-#define ENABLE_AT_WINI     1	/* enable AT winchester driver */
+#define ENABLE_AT_WINI     0	/* enable AT winchester driver */
 #define ENABLE_BIOS_WINI   1	/* enable BIOS winchester driver */
-#define ENABLE_ESDI_WINI   1	/* enable ESDI winchester driver */
+#define ENABLE_ESDI_WINI   0	/* enable ESDI winchester driver */
 #define ENABLE_XT_WINI     0	/* enable XT winchester driver */
-#define ENABLE_ADAPTEC_SCSI 1	/* enable ADAPTEC SCSI driver */
+#define ENABLE_ADAPTEC_SCSI 0	/* enable ADAPTEC SCSI driver */
 #define ENABLE_MITSUMI_CDROM 0	/* enable Mitsumi CD-ROM driver */
 #define ENABLE_SB_AUDIO    0	/* enable Soundblaster audio driver */
 
@@ -92,8 +100,8 @@
 /* NR_CONS, NR_RS_LINES, and NR_PTYS determine the number of terminals the
  * system can handle.
  */
-#define NR_CONS            2	/* # system consoles (1 to 8) */
-#define	NR_RS_LINES	   2	/* # rs232 terminals (0, 1, or 2) */
+#define NR_CONS            1	/* # system consoles (1 to 8) */
+#define	NR_RS_LINES	   0	/* # rs232 terminals (0, 1, or 2) */
 #define	NR_PTYS		   0	/* # pseudo terminals (0 to 64) */
 
 #if (MACHINE == ATARI)
