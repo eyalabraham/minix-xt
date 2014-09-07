@@ -134,6 +134,7 @@ _PROTOTYPE( int kbd_loadmap, (phys_bytes user_phys)			);
 _PROTOTYPE( void wreboot, (int how)					);
 
 /* klib*.s */
+_PROTOTYPE( void bios10, (void)					);
 _PROTOTYPE( void bios13, (void)						);
 _PROTOTYPE( phys_bytes check_mem, (phys_bytes base, phys_bytes size)	);
 _PROTOTYPE( void cp_mess, (int src,phys_clicks src_clicks,vir_bytes src_offset,

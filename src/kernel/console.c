@@ -1,4 +1,4 @@
-/* Code and data for the IBM console driver.
+/* Code and data for the IBM 'newbios' console driver.
  *
  * The 6845 video controller used by the IBM PC shares its video memory with
  * the CPU somewhere in the 0xB0000 memory bank.  To the 6845 this memory
@@ -110,6 +110,9 @@ struct sequence {
 	unsigned char value;
 };
 
+extern unsigned Ax, Bx, Cx, Dx, Es, Bp;	/* to hold registers for INT10 BIOS calls */
+int nIsNewXT;
+
 FORWARD _PROTOTYPE( void cons_write, (struct tty *tp)			);
 FORWARD _PROTOTYPE( void cons_echo, (tty_t *tp, int c)			);
 FORWARD _PROTOTYPE( void out_char, (console_t *cons, int c)		);
@@ -122,6 +125,7 @@ FORWARD _PROTOTYPE( void set_6845, (int reg, unsigned val)		);
 FORWARD _PROTOTYPE( void stop_beep, (void)				);
 FORWARD _PROTOTYPE( void cons_org0, (void)				);
 FORWARD _PROTOTYPE( void ga_program, (struct sequence *seq) );
+FORWARD _PROTOTYPE( int  isNewXT, (void)                               );
 
 
 /*===========================================================================*
@@ -225,7 +229,13 @@ int c;				/* character to be output */
 		flush(cons);	/* print any chars queued for output */
 		beep();
 		return;
-
+#if NEWBIOS_MINIX
+        /* ignore processing of these character and let BIOS handle them.
+           only special processing will be to swap LF with CR+LF          */
+        case '\n':
+                putk('\r'); /* insert a CR and then
+                               fall through to default and put the LF */
+#else
 	case '\b':		/* backspace */
 		if (--cons->c_column < 0) {
 			if (--cons->c_row >= 0) cons->c_column += scr_width;
@@ -271,12 +281,18 @@ int c;				/* character to be output */
 		flush(cons);	/* print any chars queued for output */
 		cons->c_esc_state = 1;	/* mark ESC as seen */
 		return;
+#endif /* NEWBIOS_MINIX */
 
 	default:		/* printable chars are stored in ramqueue */
 		if (cons->c_column >= scr_width) {
 			if (!LINEWRAP) return;
 			if (cons->c_row == scr_lines-1) {
+#if NEWBIOS_MINIX
+        /* no need to scroll screen under BIOS.
+           BIOS should take care of scrolling     */
+#else
 				scroll_screen(cons, SCROLL_UP);
+#endif /* NEWBIOS_MINIX */
 			} else {
 				cons->c_row++;
 			}
@@ -298,6 +314,22 @@ PRIVATE void scroll_screen(cons, dir)
 register console_t *cons;	/* pointer to console struct */
 int dir;			/* SCROLL_UP or SCROLL_DOWN */
 {
+#if NEWBIOS_MINIX /* scroll screen using BIOS INT10 call */
+  flush(cons);
+  if ( dir == SCROLL_UP )
+     {
+        Ax = 0x0601;            /* scroll 1 line up                             */
+     }
+  else
+     {
+        Ax = 0x0701;            /* scroll 1 line down                           */
+     }
+
+  Bx = 0;                       /* fill attribute for new line, is ignored      */
+  Cx = 0x0000;                  /* top left corner                              */
+  Dx = 0x184f;                  /* bottom right corner                          */
+  level0(bios10);               /* do the BIOS call                             */
+#else
   unsigned new_line, new_org, chars;
 
   flush(cons);
@@ -343,6 +375,7 @@ int dir;			/* SCROLL_UP or SCROLL_DOWN */
   /* Set the new video origin. */
   if (cons == curcons) set_6845(VID_ORG, cons->c_org);
   flush(cons);
+#endif /* NEWBIOS_MINIX */
 }
 
 
@@ -355,12 +388,21 @@ register console_t *cons;	/* pointer to console struct */
 /* Send characters buffered in 'ramqueue' to screen memory, check the new
  * cursor position, compute the new hardware cursor position and set it.
  */
-  unsigned cur;
+  unsigned cur, i;
   tty_t *tp = cons->c_tty;
 
   /* Have the characters in 'ramqueue' transferred to the screen. */
   if (cons->c_rwords > 0) {
+#if NEWBIOS_MINIX /* output characters using newbios BIOS call */
+        for ( i = 0; i < cons->c_rwords; i++ )
+        {
+            Ax = 0x0e00 | (cons->c_ramqueue[i] & BYTE); /* function 0Eh and character ASCII */
+            Bx = 0x0000 | ((cons->c_ramqueue[i] >> 8) & BYTE); /* page and attribute        */
+            level0(bios10);                                    /* BIOS call                 */
+        }
+#else
 	mem_vid_copy(cons->c_ramqueue, cons->c_cur, cons->c_rwords);
+#endif /* NEWBIOS_MINIX */
 	cons->c_rwords = 0;
 
 	/* TTY likes to know the current column and if echoing messed up. */
@@ -681,6 +723,8 @@ PRIVATE void set_6845(reg, val)
 int reg;			/* which register pair to set */
 unsigned val;			/* 16-bit value to set it to */
 {
+#if NEWBIOS_MINIX
+#else
 /* Set a register pair inside the 6845.
  * Registers 12-13 tell the 6845 where in video ram to start
  * Registers 14-15 tell the 6845 where to put the cursor
@@ -691,6 +735,7 @@ unsigned val;			/* 16-bit value to set it to */
   out_byte(vid_port + INDEX, reg + 1);		/* again */
   out_byte(vid_port + DATA, val&BYTE);		/* output low byte */
   unlock();
+#endif /* NEWBIOS_MINIX */
 }
 
 
@@ -763,7 +808,18 @@ tty_t *tp;
   /* Output functions. */
   tp->tty_devwrite = cons_write;
   tp->tty_echo = cons_echo;
-
+#if NEWBIOS_MINIX
+  nIsNewXT = isNewXT(); /* set flag for running environement */
+  printf("New XT: %d\n", nIsNewXT);
+  
+  nr_cons = NR_CONS;    /* fix console count, must always be =1 in config.h !! */
+  cons->c_esc_state = 0;
+  
+  cons->c_start = 0;    /* preset unused parameters */
+  cons->c_limit = 0;
+  cons->c_org = 0;
+  cons->c_attr = BLANK_COLOR;  
+#else
   /* Get the BIOS parameters that tells the VDU I/O base register. */
   phys_copy(0x463L, vir2phys(&bios_crtbase), 2L);
 
@@ -798,6 +854,7 @@ tty_t *tp;
   /* Clear the screen. */
   blank_color = BLANK_COLOR;
   mem_vid_copy(BLANK_MEM, cons->c_start, scr_size);
+#endif /* NEWBIOS_MINIX */
   select_console(0);
 }
 
@@ -815,7 +872,10 @@ int c;				/* character to print */
  */
 
   if (c != 0) {
+#if NEWBIOS_MINIX
+#else
 	if (c == '\n') putk('\r');
+#endif /* NEWBIOS_MINIX */
 	out_char(&cons_table[0], (int) c);
   } else {
 	flush(&cons_table[0]);
@@ -858,7 +918,8 @@ PRIVATE void cons_org0()
   int cons_line;
   console_t *cons;
   unsigned n;
-
+#if NEWBIOS_MINIX
+#else
   for (cons_line = 0; cons_line < nr_cons; cons_line++) {
 	cons = &cons_table[cons_line];
 	while (cons->c_org > cons->c_start) {
@@ -870,6 +931,7 @@ PRIVATE void cons_org0()
 	}
 	flush(cons);
   }
+#endif /* NEWBIOS_MINIX */
   select_console(current);
 }
 
@@ -884,8 +946,11 @@ PUBLIC void select_console(int cons_line)
   if (cons_line < 0 || cons_line >= nr_cons) return;
   current = cons_line;
   curcons = &cons_table[cons_line];
+#if NEWBIOS_MINIX
+#else
   set_6845(VID_ORG, curcons->c_org);
   set_6845(CURSOR, curcons->c_cur);
+#endif /* NEWBIOS_MINIX */
 }
 
 
@@ -896,6 +961,8 @@ PUBLIC void select_console(int cons_line)
 PUBLIC int con_loadfont(user_phys)
 phys_bytes user_phys;
 {
+#if NEWBIOS_MINIX
+#else
 /* Load a font into the EGA or VGA adapter. */
   static struct sequence seq1[7] = {
 	{ GA_SEQUENCER_INDEX, 0x00, 0x01 },
@@ -927,7 +994,7 @@ phys_bytes user_phys;
 
   ga_program(seq2);	/* restore */
   unlock();
-
+#endif /* NEWBIOS_MINIX */
   return(OK);
 }
 
@@ -946,3 +1013,23 @@ struct sequence *seq;
 	seq++;
   } while (--len > 0);
 }
+
+#if NEWBIOS_MINIX
+/*===========================================================================*
+ *				isNewXT 				     *
+ *===========================================================================*/
+#define  SCRATCHPAD 0x307
+
+PRIVATE int isNewXT()
+{
+  int i = 0;
+  
+  out_byte(SCRATCHPAD, 0x55);                /* send test value to UART scrantch register */
+  if ( in_byte(SCRATCHPAD) == 0x55 ) i++;    /* read back and test                        */
+  out_byte(SCRATCHPAD, 0xaa);                /* send test value to UART scrantch register */
+  if ( in_byte(SCRATCHPAD) == 0xaa ) i++;    /* read back and test                        */
+  
+  return ((i == 2) ? 1 : 0);
+}
+#endif /* NEWBIOS_MINIX */
+

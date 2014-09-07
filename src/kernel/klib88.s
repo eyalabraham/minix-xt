@@ -94,7 +94,41 @@ _monitor:
 	retf				! return to the monitor
 
 
-#if ENABLE_BIOS_WINI
+#if NEWBIOS_MINIX
+!*===========================================================================*
+!*				bios10					     *
+!*===========================================================================*
+! PUBLIC void bios10();
+.define _bios10
+_bios10:			        ! make a BIOS 0x10 call for console output
+	push	si
+	push	di		        ! save C variable registers
+	pushf			        ! save flags
+
+	call	int10		        ! make the actual call. no need to have a protected mode call for this INT
+
+	popf			        ! restore flags
+	pop	di		        ! restore C registers
+	pop	si
+	ret
+
+int10:
+        push    bp                      ! need to save and restore BP
+	mov	ax, _Ax		        ! load parameters
+	mov	bx, _Bx
+	mov	cx, _Cx
+	mov	dx, _Dx
+	mov     es, _Es
+	mov     bp, _Bp
+	sti			        ! enable interrupts
+	int	0x10		        ! make the BIOS call
+	cli			        ! disable interrupts
+                                        ! no resutls to return from INT10
+	mov	ax, ds
+	mov	es, ax		        ! restore es
+	pop     bp
+	ret
+
 !*===========================================================================*
 !*				bios13					     *
 !*===========================================================================*
@@ -168,14 +202,15 @@ int13:
 	ret
 
 .bss
-.define	_Ax, _Bx, _Cx, _Dx, _Es		! 8086 register variables
+.define	_Ax, _Bx, _Cx, _Dx, _Es, _Bp		! 8086 register variables
 .comm	_Ax, 2
 .comm	_Bx, 2
 .comm	_Cx, 2
 .comm	_Dx, 2
 .comm	_Es, 2
+.comm   _Bp, 2
 .text
-#endif /* ENABLE_BIOS_WINI */
+#endif /* NEWBIOS_MINIX */
 
 
 !*===========================================================================*
