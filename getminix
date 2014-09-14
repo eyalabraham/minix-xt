@@ -9,6 +9,7 @@ MOUNT=/home/eyal/drv
 IMAGE=~/Documents/images/minix/minix-floppy.img
 IMGFILE=minix-floppy.img
 TARFILE=sys.tar
+EXTRALIST=extras
 
 # check if running in a git repository
 git status &> /dev/null
@@ -26,12 +27,19 @@ for FILE in $(git status | awk '/modified/ {print $3}'); do
     echo added $FILE
 done
 
+# extra files to add
+#
+for FILE in $(cat $EXTRALIST); do
+    tar -r -f $TARFILE $FILE
+    echo extra $FILE
+done
+
 # move tar to diskette image
 sudo mount -o loop, $IMAGE $MOUNT
 sleep 2
-cp $TARFILE $MOUNT
+sudo cp $TARFILE $MOUNT
 sleep 2
-umount $MOUNT/$IMGFILE
+sudo umount $MOUNT
 
 # move tar to Dropbox
 cp $TARFILE $DROPBOX

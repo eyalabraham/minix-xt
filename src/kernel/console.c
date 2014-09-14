@@ -802,16 +802,16 @@ tty_t *tp;
   cons->c_tty = tp;
   tp->tty_priv = cons;
 
-  /* Initialize the keyboard driver. */
-  kb_init(tp);
-
   /* Output functions. */
   tp->tty_devwrite = cons_write;
   tp->tty_echo = cons_echo;
 #if NEWBIOS_MINIX
   nIsNewXT = isNewXT(); /* set flag for running environement */
-  printf("New XT: %d\n", nIsNewXT);
+  printf("console.isNewXT: %d\n", nIsNewXT);
   
+  /* Initialize the keyboard driver. */
+  kb_init(tp);
+
   nr_cons = NR_CONS;    /* fix console count, must always be =1 in config.h !! */
   cons->c_esc_state = 0;
   

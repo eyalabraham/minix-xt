@@ -56,6 +56,7 @@
 #define NR_IRQ_VECTORS    16
 #define CLOCK_IRQ          0
 #define KEYBOARD_IRQ       1
+#define NEWXT_KBD_IRQ      2    /* new xt hardware UART IRQ doubling for keyboard */
 #define CASCADE_IRQ        2	/* cascade enable for 2nd AT controller */
 #define ETHER_IRQ          3	/* default ethernet interrupt vector */
 #define SECONDARY_IRQ      3	/* RS232 interrupt vector for port 2 */

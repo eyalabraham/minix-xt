@@ -42,6 +42,9 @@
 #define kb_addr()	(&kb_lines[0])	/* there is only one keyboard */
 #define KB_IN_BYTES	  32	/* size of keyboard input buffer */
 
+#define Z_FLAG_SET    0x0040    /* 8088 zero flag bit set       */
+#define UARTRX        0x300     /* new xt hardware, UART input register */
+
 PRIVATE int alt1;		/* left alt key state */
 PRIVATE int alt2;		/* right alt key state */
 PRIVATE int capslock;		/* caps lock key state */
@@ -64,6 +67,8 @@ struct kb_s {
   int icount;			/* # codes in buffer */
   char ibuf[KB_IN_BYTES];	/* input buffer */
 };
+
+extern int nIsNewXT;
 
 PRIVATE struct kb_s kb_lines[NR_CONS];
 
@@ -216,37 +221,43 @@ tty_t *tp;
   }
 }
 
-
 /*===========================================================================*
  *				make_break				     *
  *===========================================================================*/
 PRIVATE unsigned make_break(scode)
 int scode;			/* scan code of key just struck or released */
 {
-/* This routine can handle keyboards that interrupt only on key depression,
- * as well as keyboards that interrupt on key depression and key release.
- * For efficiency, the interrupt routine filters out most key releases.
- */
   int ch, make;
   static int CAD_count = 0;
 
-  /* Check for CTRL-ALT-DEL, and if found, halt the computer. This would
-   * be better done in keyboard() in case TTY is hung, except control and
-   * alt are set in the high level code.
-   */
-  if (control && (alt1 || alt2) && scode == DEL_SCAN)
+  if ( nIsNewXT )
   {
-	if (++CAD_count == 3) wreboot(RBT_HALT);
-	cause_sig(INIT_PROC_NR, SIGABRT);
-	return -1;
+    /* under new xt hardware the scode input is already an ASCII code */
+    return scode;
   }
+  else
+  {
+    /* This routine can handle keyboards that interrupt only on key depression,
+     * as well as keyboards that interrupt on key depression and key release.
+     * For efficiency, the interrupt routine filters out most key releases.
+     */
+      /* Check for CTRL-ALT-DEL, and if found, halt the computer. This would
+       * be better done in keyboard() in case TTY is hung, except control and
+       * alt are set in the high level code.
+       */
+      if (control && (alt1 || alt2) && scode == DEL_SCAN)
+      {
+         if (++CAD_count == 3) wreboot(RBT_HALT);
+         cause_sig(INIT_PROC_NR, SIGABRT);
+         return -1;
+      }
 
-  /* High-order bit set on key release. */
-  make = (scode & 0200 ? 0 : 1);	/* 0 = release, 1 = press */
+      /* High-order bit set on key release. */
+      make = (scode & 0200 ? 0 : 1);	/* 0 = release, 1 = press */
 
-  ch = map_key(scode & 0177);		/* map to ASCII */
+      ch = map_key(scode & 0177);		/* map to ASCII */
 
-  switch (ch) {
+      switch (ch) {
   	case CTRL:
 		control = make;
 		ch = -1;
@@ -292,9 +303,10 @@ int scode;			/* scan code of key just struck or released */
 		return(-1);
   	default:
 		if (!make) ch = -1;
+      }
+      esc = 0;
+      return(ch);
   }
-  esc = 0;
-  return(ch);
 }
 
 
@@ -303,6 +315,9 @@ int scode;			/* scan code of key just struck or released */
  *===========================================================================*/
 PRIVATE void set_leds()
 {
+#if NEWBIOS_MINIX
+  /* this function will never be called under newbios, removing code to save space */
+#else
 /* Set the LEDs on the caps lock and num lock keys */
 
   unsigned leds;
@@ -319,6 +334,7 @@ PRIVATE void set_leds()
   kb_wait();			/* wait for buffer empty  */
   out_byte(KEYBD, leds);	/* give keyboard LED values */
   kb_ack();			/* wait for ack response  */
+#endif /* NEWBIOS_MINIX */
 }
 
 
@@ -327,14 +343,20 @@ PRIVATE void set_leds()
  *==========================================================================*/
 PRIVATE int kb_wait()
 {
-/* Wait until the controller is ready; return zero if this times out. */
-
   int retries;
 
-  retries = MAX_KB_BUSY_RETRIES + 1;
-  while (--retries != 0 && in_byte(KB_STATUS) & KB_BUSY)
-	;			/* wait until not busy */
-  return(retries);		/* nonzero if ready */
+  if ( nIsNewXT )
+  {
+    /* always return good status */
+    return 1;
+  }
+  else
+  {
+    /* Wait until the controller is ready; return zero if this times out. */
+    retries = MAX_KB_BUSY_RETRIES + 1;
+    while (--retries != 0 && in_byte(KB_STATUS) & KB_BUSY); /* wait until not busy */
+    return(retries);                                        /* nonzero if ready */
+  }
 }
 
 
@@ -343,14 +365,20 @@ PRIVATE int kb_wait()
  *==========================================================================*/
 PRIVATE int kb_ack()
 {
-/* Wait until kbd acknowledges last command; return zero if this times out. */
-
   int retries;
 
-  retries = MAX_KB_ACK_RETRIES + 1;
-  while (--retries != 0 && in_byte(KEYBD) != KB_ACK)
-	;			/* wait for ack */
-  return(retries);		/* nonzero if ack received */
+  if ( nIsNewXT )
+  {
+    /* always acknowledge */
+    return 1;
+  }
+  else
+  {
+    /* Wait until kbd acknowledges last command; return zero if this times out. */
+    retries = MAX_KB_ACK_RETRIES + 1;
+    while (--retries != 0 && in_byte(KEYBD) != KB_ACK); /* wait for ack */
+    return(retries);                                    /* nonzero if ack received */
+  }
 }
 
 /*===========================================================================*
@@ -376,13 +404,23 @@ tty_t *tp;
   num_off = 1;
   slock_off = 1;
   esc = 0;
+  
+  printf("keyboard.isNewXT: %d\n", nIsNewXT);
 
+  if ( nIsNewXT )
+  { /* hook into the new xt hardware interrupt for UART */
+    put_irq_handler(NEWXT_KBD_IRQ, kbd_hw_int);	/* set the interrupt handler */
+    enable_irq(NEWXT_KBD_IRQ);	/* safe now everything initialised! */
+  }
+  else
+  {
+    put_irq_handler(KEYBOARD_IRQ, kbd_hw_int);	/* set the interrupt handler */
+    enable_irq(KEYBOARD_IRQ);	/* safe now everything initialised! */
+  }
+  
+#if NEWBIOS_MINIX
   set_leds();			/* turn off numlock led */
-
-  scan_keyboard();		/* stop lockup from leftover keystroke */
-
-  put_irq_handler(KEYBOARD_IRQ, kbd_hw_int);	/* set the interrupt handler */
-  enable_irq(KEYBOARD_IRQ);	/* safe now everything initialised! */
+#endif /* NEWBIOS_MINIX */
 }
 
 
@@ -405,28 +443,36 @@ phys_bytes user_phys;
 PRIVATE int func_key(scode)
 int scode;			/* scan code for a function key */
 {
-/* This procedure traps function keys for debugging and control purposes. */
-
   unsigned code;
 
-  code = map_key0(scode);			/* first ignore modifiers */
-  if (code < F1 || code > F12) return(FALSE);	/* not our job */
+  if ( nIsNewXT )
+  {
+    /* no function key processing under newbios */
+    return(FALSE);
+  }
+  else
+  {
+    /* This procedure traps function keys for debugging and control purposes. */
 
-  switch (map_key(scode)) {			/* include modifiers */
+    code = map_key0(scode);			/* first ignore modifiers */
+    if (code < F1 || code > F12) return(FALSE);	/* not our job */
 
-  case F1:	p_dmp(); break;		/* print process table */
-  case F2:	map_dmp(); break;	/* print memory map */
-  case F3:	toggle_scroll(); break;	/* hardware vs. software scrolling */
+    switch (map_key(scode)) {			/* include modifiers */
+
+    case F1:	p_dmp(); break;		/* print process table */
+    case F2:	map_dmp(); break;	/* print memory map */
+    case F3:	toggle_scroll(); break;	/* hardware vs. software scrolling */
 
 #if ENABLE_NETWORKING
-  case F5:	dp_dump(); break;		/* network statistics */
+    case F5:	dp_dump(); break;		/* network statistics */
 #endif
-  case CF7:	sigchar(&tty_table[CONSOLE], SIGQUIT); break;
-  case CF8:	sigchar(&tty_table[CONSOLE], SIGINT); break;
-  case CF9:	sigchar(&tty_table[CONSOLE], SIGKILL); break;
-  default:	return(FALSE);
+    case CF7:	sigchar(&tty_table[CONSOLE], SIGQUIT); break;
+    case CF8:	sigchar(&tty_table[CONSOLE], SIGINT); break;
+    case CF9:	sigchar(&tty_table[CONSOLE], SIGKILL); break;
+    default:	return(FALSE);
+    }
+    return(TRUE);
   }
-  return(TRUE);
 }
 
 
@@ -440,10 +486,20 @@ PRIVATE int scan_keyboard()
   int code;
   int val;
 
-  code = in_byte(KEYBD);	/* get the scan code for the key struck */
-  val = in_byte(PORT_B);	/* strobe the keyboard to ack the char */
-  out_byte(PORT_B, val | KBIT);	/* strobe the bit high */
-  out_byte(PORT_B, val);	/* now strobe it low */
+  if ( nIsNewXT )
+  {
+    /* get ASCII code from the UART input register */
+    code = in_byte(UARTRX);
+  }
+  else
+  {
+    /* get scan code from the keyboard register */
+    code = in_byte(KEYBD);	/* get the scan code for the key struck */
+    val = in_byte(PORT_B);	/* strobe the keyboard to ack the char */
+    out_byte(PORT_B, val | KBIT);	/* strobe the bit high */
+    out_byte(PORT_B, val);	/* now strobe it low */
+  }
+  
   return code;
 }
 
@@ -454,6 +510,7 @@ PRIVATE int scan_keyboard()
 PUBLIC void wreboot(how)
 int how;		/* 0 = halt, 1 = reboot, 2 = panic!, ... */
 {
+  if ( !nIsNewXT ) {
 /* Wait for keystrokes for printing debugging info and reboot. */
 
   int quiet, code;
@@ -539,4 +596,5 @@ int how;		/* 0 = halt, 1 = reboot, 2 = panic!, ... */
   }
   /* In real mode, jumping to the reset address is good enough. */
   level0(reset);
+  } /* if not nIsNewXT */
 }
