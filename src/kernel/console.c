@@ -110,7 +110,7 @@ struct sequence {
 	unsigned char value;
 };
 
-extern unsigned Ax, Bx, Cx, Dx, Es, Bp;	/* to hold registers for INT10 BIOS calls */
+extern unsigned ConAx, ConBx, ConCx, ConDx, ConEs, ConBp;	/* to hold registers for INT10 BIOS calls */
 int nIsNewXT;
 
 FORWARD _PROTOTYPE( void cons_write, (struct tty *tp)			);
@@ -318,16 +318,16 @@ int dir;			/* SCROLL_UP or SCROLL_DOWN */
   flush(cons);
   if ( dir == SCROLL_UP )
      {
-        Ax = 0x0601;            /* scroll 1 line up                             */
+        ConAx = 0x0601;         /* scroll 1 line up                             */
      }
   else
      {
-        Ax = 0x0701;            /* scroll 1 line down                           */
+        ConAx = 0x0701;         /* scroll 1 line down                           */
      }
 
-  Bx = 0;                       /* fill attribute for new line, is ignored      */
-  Cx = 0x0000;                  /* top left corner                              */
-  Dx = 0x184f;                  /* bottom right corner                          */
+  ConBx = 0;                    /* fill attribute for new line, is ignored      */
+  ConCx = 0x0000;               /* top left corner                              */
+  ConDx = 0x184f;               /* bottom right corner                          */
   level0(bios10);               /* do the BIOS call                             */
 #else
   unsigned new_line, new_org, chars;
@@ -396,8 +396,8 @@ register console_t *cons;	/* pointer to console struct */
 #if NEWBIOS_MINIX /* output characters using newbios BIOS call */
         for ( i = 0; i < cons->c_rwords; i++ )
         {
-            Ax = 0x0e00 | (cons->c_ramqueue[i] & BYTE); /* function 0Eh and character ASCII */
-            Bx = 0x0000 | ((cons->c_ramqueue[i] >> 8) & BYTE); /* page and attribute        */
+            ConAx = 0x0e00 | (cons->c_ramqueue[i] & BYTE); /* function 0Eh and character ASCII */
+            ConBx = 0x0000 | ((cons->c_ramqueue[i] >> 8) & BYTE); /* page and attribute        */
             level0(bios10);                                    /* BIOS call                 */
         }
 #else

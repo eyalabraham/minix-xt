@@ -132,6 +132,9 @@
 #define BSY_IO		   1	/* doing I/O */
 #define BSY_WAKEN	   2	/* got a wakeup call */
 
+#define BIOS_WRITE      0x03	/* opcode for BIOS read */
+#define BIOS_READ       0x02	/* opcode for BIOS read */
+
 /* Variables. */
 PRIVATE struct floppy {		/* main drive struct, one entry per drive */
   int fl_curcyl;		/* current cylinder */
@@ -153,6 +156,8 @@ PRIVATE struct trans {		/* precomputed transfer params */
   phys_bytes tr_phys;		/* user physical address */
   phys_bytes tr_dma;		/* DMA physical address */
 } ftrans[MAX_SECTORS];
+
+extern unsigned Ax, Bx, Cx, Dx, Es;	/* to hold registers for BIOS calls */
 
 PRIVATE unsigned f_count;	/* this many bytes to transfer */
 PRIVATE unsigned f_nexttrack;	/* don't do blocks above this */
@@ -281,10 +286,12 @@ PUBLIC void floppy_task()
 	fp->fl_density = NO_DENS;
 	fp->fl_class = ~0;
   }
-
+#if NEWBIOS_MINIX
+  /* do not initialize floppy drive interrupts */
+#else
   put_irq_handler(FLOPPY_IRQ, f_handler);
   enable_irq(FLOPPY_IRQ);		/* ready for floppy interrupts */
-
+#endif
   driver_task(&f_dtab);
 }
 
@@ -531,6 +538,10 @@ PRIVATE int f_finish()
 	/* This loop allows a failed operation to be repeated. */
 	errors = 0;
 	for (;;) {
+#if NEWBIOS_MINIX
+                /* skip HDD controllor setup for IO */
+                r = OK; /* set this up becasue we are skipping seek(); */
+#else
 		/* First check to see if a reset is needed. */
 		if (need_reset) f_reset();
 
@@ -544,7 +555,7 @@ PRIVATE int f_finish()
 
 		/* Set the data rate */
 		if (pc_at) out_byte(FDC_RATE, rate[d]);
-
+#endif
 		/* If we are going to a new cylinder, perform a seek. */
 		r = seek(fp);
 
@@ -643,7 +654,9 @@ struct trans *tp;		/* pointer to the transfer struct */
  * capable of doing a DMA across a 64K boundary (e.g., you can't read a
  * 512-byte block starting at physical address 65520).
  */
-
+#if NEWBIOS_MINIX
+  /* not using DMA so skip DMA transfer setup */
+#else
   /* Set up the DMA registers.  (The comment on the reset is a bit strong,
    * it probably only resets the floppy channel.)
    */
@@ -656,6 +669,7 @@ struct trans *tp;		/* pointer to the transfer struct */
   out_byte(DMA_COUNT, (tp->tr_count - 1) >> 0);
   out_byte(DMA_COUNT, (tp->tr_count - 1) >> 8);
   out_byte(DMA_INIT, 2);	/* some sort of enable */
+#endif
 }
 
 
@@ -683,8 +697,11 @@ PRIVATE void start_motor()
   motor_bit = 1 << f_drive;		/* bit mask for this drive */
   running = motor_status & motor_bit;	/* nonzero if this motor is running */
   motor_goal = motor_status | motor_bit;/* want this drive running too */
-
+#if NEWBIOS_MINIX
+  /* skip drive motor controls */
+#else
   out_byte(DOR, (motor_goal << MOTOR_SHIFT) | ENABLE_INT | f_drive);
+#endif
   motor_status = motor_goal;
 
   /* If the motor was already running, we don't have to wait for it. */
@@ -705,7 +722,11 @@ PRIVATE void stop_motor()
  */
 
   if (motor_goal != motor_status) {
+#if NEWBIOS_MINIX
+  /* skip drive motor control */
+#else
 	out_byte(DOR, (motor_goal << MOTOR_SHIFT) | ENABLE_INT);
+#endif
 	motor_status = motor_goal;
   }
 }
@@ -732,7 +753,9 @@ struct floppy *fp;		/* pointer to the drive struct */
 /* Issue a SEEK command on the indicated drive unless the arm is already
  * positioned on the correct cylinder.
  */
-
+#if NEWBIOS_MINIX
+  /* seek not required on emulated drive */
+#else
   int r;
   message mess;
 
@@ -761,6 +784,7 @@ struct floppy *fp;		/* pointer to the drive struct */
 	clock_mess(2, send_mess);
 	receive(CLOCK, &mess);
   }
+#endif
   fp->fl_curcyl = fp->fl_hardcyl;
   return(OK);
 }
@@ -774,7 +798,41 @@ struct floppy *fp;		/* pointer to the drive struct */
 struct trans *tp;		/* pointer to the transfer struct */
 {
 /* The drive is now on the proper cylinder.  Read, write or format 1 block. */
+#if NEWBIOS_MINIX
+  /* perform data transfer using new XT BIOS INT13 function */
+  unsigned hicyl, locyl;
+  int r;
 
+  if (f_device & FORMAT_DEV_BIT) /* if this is a format command then return OK without doing anything */
+      return(OK);
+  
+  /* all that's left is to process read or writes */
+
+  Ax = f_opcode == DEV_WRITE ? BIOS_WRITE : BIOS_READ;  /* read or write BIOS command   */
+  Ax = (Ax << 8) | (tp->tr_count >> SECTOR_SHIFT);      /* combine INT13 opcode & count */
+  Bx = (unsigned) tp->tr_dma % HCLICK_SIZE;            /* buffer address offset        */
+  Es = physb_to_hclick(tp->tr_dma);                     /* buffer address segment       */
+  hicyl = (fp->fl_cylinder & 0x300) >> 2;               /* two high-order bits in CL    */
+  locyl = (fp->fl_cylinder & 0xFF) << 8;                /* 8 low-order bits in CH       */
+  Cx = fp->fl_sector | hicyl | locyl;                   /* cylinder and sector address  */
+  Dx = f_drive | (fp->fl_head << 8);                    /* drive and head               */
+  /* printf("Ax 0x%04x, Bx 0x%04x, Cx 0x%04x, Dx 0x%04x, Es 0x%04x\n", Ax, Bx, Cx, Dx, Es); */
+  level0(bios13);
+  
+  if ((Ax & 0xFF00) != 0 )
+  {
+    r = ERR_TRANSFER;
+    printf("drive %s BIOS error 0x%02x\n", f_name(), ((Ax & 0xFF00) >> 8));
+  }
+  else
+  {
+    r = fp->fl_sector + (Ax & 0x00FF);
+    fp->fl_sector = (r > f_sectors) ? (r % f_sectors) : r;   /* This sector is next for I/O: */
+    r = OK;
+  }
+
+  return(r);
+#else
   int r, s;
 
   /* Never attempt a transfer if the drive is uncalibrated or motor is off. */
@@ -830,6 +888,7 @@ struct trans *tp;		/* pointer to the transfer struct */
   /* This sector is next for I/O: */
   fp->fl_sector = f_results[ST_SEC];
   return(OK);
+#endif
 }
 
 
@@ -841,7 +900,10 @@ PRIVATE int fdc_results()
 /* Extract results from the controller after an operation, then allow floppy
  * interrupts again.
  */
-
+#if NEWBIOS_MINIX
+  /* return good status */
+  return(OK);
+#else
   int result_nr, status;
   struct milli_state ms;
 
@@ -869,6 +931,7 @@ PRIVATE int fdc_results()
   need_reset = TRUE;		/* controller chip must be reset */
   enable_irq(FLOPPY_IRQ);
   return(ERR_STATUS);
+#endif
 }
 
 
@@ -895,7 +958,9 @@ int val;		/* write this byte to floppy disk controller */
  * can only write to it when it is listening, and it decides when to listen.
  * If the controller refuses to listen, the FDC chip is given a hard reset.
  */
-
+#if NEWBIOS_MINIX
+  /* this routine will not be called, keeping it for compatibility */
+#else
   struct milli_state ms;
 
   if (need_reset) return;	/* if controller is not listening, return */
@@ -910,6 +975,7 @@ int val;		/* write this byte to floppy disk controller */
 	}
   }
   out_byte(FDC_DATA, val);
+#endif
 }
 
 
@@ -927,7 +993,11 @@ struct floppy *fp;	/* pointer tot he drive struct */
  * which forces the arm to cylinder 0.  This way the controller can get back
  * into sync with reality.
  */
-
+#if NEWBIOS_MINIX
+  /* this routine will not be called, keeping it with a 'OK' return vode */
+  fp->fl_calibration = CALIBRATED;
+  return(OK);
+#else
   int r;
 
   /* Issue the RECALIBRATE command and wait for the interrupt. */
@@ -951,6 +1021,7 @@ struct floppy *fp;	/* pointer tot he drive struct */
 	fp->fl_calibration = CALIBRATED;
 	return(OK);
   }
+#endif
 }
 
 
@@ -968,7 +1039,9 @@ PRIVATE void f_reset()
 
   /* Disable interrupts and strobe reset bit low. */
   need_reset = FALSE;
-
+#if NEWBIOS_MINIX
+  /* skip actual reset to drive controller */
+#else
   /* It is not clear why the next lock is needed.  Writing 0 to DOR causes
    * interrupt, while the PC documentation says turning bit 8 off disables
    * interrupts.  Without the lock:
@@ -1001,6 +1074,7 @@ PRIVATE void f_reset()
 	fdc_out(FDC_SENSE);	/* probe FDC to make it return status */
 	(void) fdc_results();	/* flush controller */
   }
+#endif
   for (i = 0; i < NR_DRIVES; i++)	/* clear each drive */
 	floppy[i].fl_calibration = UNCALIBRATED;
 
@@ -1070,6 +1144,10 @@ PRIVATE void f_timeout()
 PRIVATE int read_id(fp)
 struct floppy *fp;	/* pointer to the drive struct */
 {
+#if NEWBIOS_MINIX
+  f_fp->fl_sector = 1; /* fake next sector */
+  return(OK);         /* result are ok    */
+#else
 /* Determine current cylinder and sector. */
 
   int result;
@@ -1097,6 +1175,7 @@ struct floppy *fp;	/* pointer to the drive struct */
   /* The next sector is next for I/O: */
   f_fp->fl_sector = f_results[ST_SEC] + 1;
   return(OK);
+#endif
 }
 
 
