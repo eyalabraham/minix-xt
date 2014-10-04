@@ -102,7 +102,7 @@
  */
 #define NR_CONS            1	/* # system consoles (1 to 8) */
 #define	NR_RS_LINES	   0	/* # rs232 terminals (0, 1, or 2) */
-#define	NR_PTYS		   0	/* # pseudo terminals (0 to 64) */
+#define	NR_PTYS		   1	/* # pseudo terminals (0 to 64) */
 
 #if (MACHINE == ATARI)
 /* The next define says if you have an ATARI ST or TT */

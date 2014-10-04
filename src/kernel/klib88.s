@@ -80,7 +80,7 @@
 ! Return to the monitor.
 
 _monitor:
-	call	prot2real		! switch to real mode
+!	call	prot2real		! switch to real mode
 	mov	ax, _reboot_code+0	! address of new parameters
 	mov	dx, _reboot_code+2
 	mov	sp, _mon_sp		! restore monitor stack pointer

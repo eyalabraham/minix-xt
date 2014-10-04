@@ -73,7 +73,10 @@
  * out_byte() is generated in-line on a fast machine.  Some printer boards
  * are slower than 0.5u anyway.
  */
-
+#if NEWBIOS_MINIX
+  /* don't define all variables and functions */
+  FORWARD _PROTOTYPE( void reply, (int code, int replyee, int process, int status) );
+#else
 PRIVATE int caller;		/* process to tell when printing done (FS) */
 PRIVATE int done_status;	/* status of last output completion */
 PRIVATE int oleft;		/* bytes of output left in obuf */
@@ -95,7 +98,7 @@ FORWARD _PROTOTYPE( void print_init, (void) );
 FORWARD _PROTOTYPE( void reply, (int code, int replyee, int process,
 		int status) );
 FORWARD _PROTOTYPE( int pr_handler, (int irq) );
-
+#endif
 /*===========================================================================*
  *				printer_task				     *
  *===========================================================================*/
@@ -104,11 +107,17 @@ PUBLIC void printer_task()
 /* Main routine of the printer task. */
 
   message pr_mess;		/* buffer for all incoming messages */
-
+#if NEWBIOS_MINIX
+  /* remove initialization */
+#else
   print_init();			/* initialize */
-
+#endif
   while (TRUE) {
 	receive(ANY, &pr_mess);
+#if NEWBIOS_MINIX
+    /* all requests will be replied with 'error' and ignored */
+    reply(TASK_REPLY, pr_mess.m_source, pr_mess.PROC_NR, EINVAL);
+#else
 	switch(pr_mess.m_type) {
 	    case DEV_OPEN:
 	    case DEV_CLOSE:
@@ -120,10 +129,11 @@ PUBLIC void printer_task()
 	    default:
 		reply(TASK_REPLY, pr_mess.m_source, pr_mess.PROC_NR, EINVAL);
 	}
+#endif
   }
 }
 
-
+#if NEWBIOS_MINIX == 0
 /*===========================================================================*
  *				do_write				     *
  *===========================================================================*/
@@ -160,8 +170,8 @@ register message *m_ptr;	/* pointer to the newly arrived message */
   /* Reply to FS, no matter what happened. */
   reply(TASK_REPLY, m_ptr->m_source, m_ptr->PROC_NR, r);
 }
-
-
+#endif
+#if NEWBIOS_MINIX == 0
 /*===========================================================================*
  *				do_done					     *
  *===========================================================================*/
@@ -199,8 +209,8 @@ PRIVATE void do_done()
   reply(REVIVE, caller, proc_nr, status);
   writing = FALSE;
 }
-
-
+#endif
+#if NEWBIOS_MINIX == 0
 /*===========================================================================*
  *				do_cancel				     *
  *===========================================================================*/
@@ -213,13 +223,13 @@ register message *m_ptr;	/* pointer to the newly arrived message */
  * but rely on FS to handle the EINTR reply and de-suspension properly.
  */
 
-  if (writing && m_ptr->PROC_NR == proc_nr) {
+  if! (writing && m_ptr->PROC_NR == proc_nr) {
 	oleft = 0;		/* cancel output by interrupt handler */
 	writing = FALSE;
   }
   reply(TASK_REPLY, m_ptr->m_source, m_ptr->PROC_NR, EINTR);
 }
-
+#endif
 
 /*===========================================================================*
  *				reply					     *
@@ -240,7 +250,7 @@ int status;			/* number of  chars printed or error code */
   send(replyee, &pr_mess);	/* send the message */
 }
 
-
+#if NEWBIOS_MINIX == 0
 /*===========================================================================*
  *				print_init				     *
  *===========================================================================*/
@@ -257,8 +267,8 @@ PRIVATE void print_init()
   put_irq_handler(PRINTER_IRQ, pr_handler);
   enable_irq(PRINTER_IRQ);		/* ready for printer interrupts */
 }
-
-
+#endif
+#if NEWBIOS_MINIX == 0
 /*==========================================================================*
  *				pr_start				    *
  *==========================================================================*/
@@ -276,8 +286,8 @@ PRIVATE void pr_start()
   opending = TRUE;
   oleft = chunk;		/* now interrupt handler is enabled */
 }
-
-
+#endif
+#if NEWBIOS_MINIX == 0
 /*===========================================================================*
  *				pr_handler				     *
  *===========================================================================*/
@@ -347,7 +357,7 @@ int irq;
   interrupt(PRINTER);
   return 1;	/* Reenable printer interrupt */
 }
-
+#endif
 
 /*==========================================================================*
  *				pr_restart				    *
@@ -358,7 +368,9 @@ PUBLIC void pr_restart()
  * Disable_irq() returns true if the irq could be disabled, so that
  * pr_restart() is not reentered.
  */
-
+#if NEWBIOS_MINIX
+  /* nothing to restart */
+#else
   if (oleft != 0) {
 	if (opending && disable_irq(PRINTER_IRQ)) {
 		(void) pr_handler(PRINTER_IRQ);
@@ -368,4 +380,5 @@ PUBLIC void pr_restart()
 	}
 	opending = TRUE;	/* expect some printing before next call */
   }
+#endif
 }

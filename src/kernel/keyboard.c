@@ -404,8 +404,6 @@ tty_t *tp;
   num_off = 1;
   slock_off = 1;
   esc = 0;
-  
-  printf("keyboard.isNewXT: %d\n", nIsNewXT);
 
   if ( nIsNewXT )
   { /* hook into the new xt hardware interrupt for UART */
@@ -510,7 +508,6 @@ PRIVATE int scan_keyboard()
 PUBLIC void wreboot(how)
 int how;		/* 0 = halt, 1 = reboot, 2 = panic!, ... */
 {
-  if ( !nIsNewXT ) {
 /* Wait for keystrokes for printing debugging info and reboot. */
 
   int quiet, code;
@@ -573,7 +570,9 @@ int how;		/* 0 = halt, 1 = reboot, 2 = panic!, ... */
   /* Stop BIOS memory test. */
   phys_copy(vir2phys(&magic), (phys_bytes) MEMCHECK_ADR,
 						(phys_bytes) sizeof(magic));
-
+#if NEWBIOS_MINIX
+  /* no protected mode on XT */
+#else
   if (protected_mode) {
 	/* Use the AT keyboard controller to reset the processor.
 	 * The A20 line is kept enabled in case this code is ever
@@ -594,7 +593,7 @@ int how;		/* 0 = halt, 1 = reboot, 2 = panic!, ... */
 	printf("Hard reset...\n");
 	milli_delay(250);
   }
+#endif
   /* In real mode, jumping to the reset address is good enough. */
   level0(reset);
-  } /* if not nIsNewXT */
 }

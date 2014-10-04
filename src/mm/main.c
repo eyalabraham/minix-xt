@@ -156,10 +156,10 @@ PRIVATE void mm_init()
   mem_init(&total_clicks, &free_clicks);
 
   /* Print memory information. */
-  printf("\nMemory size =%5dK   ", click_to_round_k(total_clicks));
+  printf("Memory size =%5dK   ", click_to_round_k(total_clicks));
   printf("MINIX =%4dK   ", click_to_round_k(minix_clicks));
   printf("RAM disk =%5dK   ", click_to_round_k(ram_clicks));
-  printf("Available =%5dK\n\n", click_to_round_k(free_clicks));
+  printf("Available =%5dK\n", click_to_round_k(free_clicks));
 
   /* Tell FS to continue. */
   if (send(FS_PROC_NR, &mess) != OK)

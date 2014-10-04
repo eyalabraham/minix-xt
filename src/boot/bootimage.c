@@ -319,6 +319,7 @@ void exec_image(char *image, char *params, size_t paramsize)
 	long a_text, a_data, a_bss, a_stack;
 	char *msec, *console;
 	u16_t mode;
+	u16_t magicNum;
 	int banner= 0;
 	long processor= a2l(b_value("processor"));
 
@@ -369,7 +370,9 @@ void exec_image(char *image, char *params, size_t paramsize)
 		}
 
 		if (!banner) {
-			printf("    cs      ds    text    data     bss");
+		        printf("  abs-entry  offset  |               size\n");
+		        printf("---------------------+---------------------------------\n");
+			printf("                     |   abs-ds    text    data     bss");
 			if (k_flags & K_CHMEM) printf("   stack");
 			putchar('\n');
 			banner= 1;
@@ -413,8 +416,8 @@ void exec_image(char *image, char *params, size_t paramsize)
 			a_data+= a_text;
 		}
 
-		printf("%06lx  %06lx%8ld%8ld%8ld",
-			procp->cs, procp->ds,
+		printf("   0x%06lx 0x%06lx | 0x%06lx%8ld%8ld%8ld",
+			procp->cs, procp->entry, procp->ds,
 			hdr.process.a_text, hdr.process.a_data,
 			hdr.process.a_bss
 		);
@@ -458,8 +461,10 @@ void exec_image(char *image, char *params, size_t paramsize)
 			addr= 0x100000L;
 			limit= 0x100000L + get_ext_memsize() * 1024L;
 		}
-	}
+	} /* end of read processes for-loop */
 
+    printf("\n");
+        
 	if ((n_procs= i) == 0) {
 		printf("There are no programs in %s\n", image);
 		errno= 0;
@@ -467,12 +472,12 @@ void exec_image(char *image, char *params, size_t paramsize)
 	}
 
 	/* Check the kernel magic number. */
-	if (get_word(process[KERNEL].data + MAGIC_OFF) != KERNEL_D_MAGIC) {
-		printf("%s magic number is incorrect\n", process[KERNEL].name);
+	if ( (magicNum = get_word(process[KERNEL].data + MAGIC_OFF)) != KERNEL_D_MAGIC) {
+		printf("%s magic number is incorrect (0x%x)\n", process[KERNEL].name, magicNum);
 		errno= 0;
 		return;
 	}
-
+	
 	/* Patch sizes, etc. into kernel data. */
 	patch_sizes();
 
@@ -483,12 +488,13 @@ void exec_image(char *image, char *params, size_t paramsize)
 	/* Reset the screen setting the proper video mode.  This is more
 	 * important than it seems, Minix depends on the mode set right.
 	 */
+	/* @@- removed mode and screen rest.
 	mode= strcmp(b_value("chrome"), "color") == 0 ? COLOR_MODE : MONO_MODE;
 	console= b_value("console");
 	if (console != nil && a2x(console) != 0) mode= a2x(console);
 	reset_video(mode);
-
-	/* Minix. */
+        */
+	/* This starts Minix. */
 	reboot_code= minix(process[KERNEL].entry, process[KERNEL].cs,
 				process[KERNEL].ds, params, paramsize);
 
@@ -638,9 +644,9 @@ void bootminix(void)
 	/* Things are getting serious, kill the cache! */
 	invalidate_cache();
 
-	printf("\nLoading ");
+	printf("\nLoading image [");
 	pretty_image(image);
-	printf(".\n\n");
+	printf("]\n\n");
 
 	exec_image(image, minixparams, paramsize);
 

@@ -143,15 +143,15 @@ PUBLIC void tty_task()
   for (tp = FIRST_TTY; tp < END_TTY; tp++) tty_init(tp);
 
   /* Display the Minix startup banner. */
-  printf("Minix %s.%s  Copyright 1997 Prentice-Hall, Inc.\n\n",
+  printf("Minix %s.%s  Copyright 1997 Prentice-Hall, Inc.\n",
 						OS_RELEASE, OS_VERSION);
 
 #if (CHIP == INTEL)
   /* Real mode, or 16/32-bit protected mode? */
 #if _WORD_SIZE == 4
-  printf("Executing in 32-bit protected mode\n\n");
+  printf("Executing in 32-bit protected mode\n");
 #else
-  printf("Executing in %s mode\n\n",
+  printf("Executing in %s mode\n",
 	protected_mode ? "16-bit protected" : "real");
 #endif
 #endif

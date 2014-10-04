@@ -1473,9 +1473,11 @@ void boot(void)
 	/* Print greeting message.  The copyright message is not yet displayed,
 	 * because this boot program need not necessarily start Minix.
 	 */
+	/* @@- can skip video mode reset on new XT BIOS
 	reset_video(get_video() & 1 ? COLOR_MODE : MONO_MODE);
+	*/
 
-	printf("\nMinix boot monitor %s\n", version);
+	printf("\n\nMinix boot monitor %s\n", version);
 	printf("\nPress ESC to enter the monitor\n");
 
 	/* Initialize tables under DOS. */

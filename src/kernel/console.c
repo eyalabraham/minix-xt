@@ -807,7 +807,7 @@ tty_t *tp;
   tp->tty_echo = cons_echo;
 #if NEWBIOS_MINIX
   nIsNewXT = isNewXT(); /* set flag for running environement */
-  printf("console.isNewXT: %d\n", nIsNewXT);
+  printf("New BIOS XT: %s\n", (nIsNewXT ? "Yes" : "No"));
   
   /* Initialize the keyboard driver. */
   kb_init(tp);

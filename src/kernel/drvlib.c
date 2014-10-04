@@ -164,7 +164,6 @@ struct part_entry *table;	/* four entries */
   }
   if (tmp_buf[510] != 0x55 || tmp_buf[511] != 0xAA) {
 	/* Invalid partition table. */
-	printf("%s: found invalid partition table\n", (*dp->dr_name)());
 	return 0;
   }
   memcpy(table, (tmp_buf + PART_TABLE_OFF), NR_PARTITIONS * sizeof(table[0]));

@@ -816,7 +816,7 @@ struct trans *tp;		/* pointer to the transfer struct */
   locyl = (fp->fl_cylinder & 0xFF) << 8;                /* 8 low-order bits in CH       */
   Cx = fp->fl_sector | hicyl | locyl;                   /* cylinder and sector address  */
   Dx = f_drive | (fp->fl_head << 8);                    /* drive and head               */
-  /* printf("Ax 0x%04x, Bx 0x%04x, Cx 0x%04x, Dx 0x%04x, Es 0x%04x\n", Ax, Bx, Cx, Dx, Es); */
+  /* printf("Ax %04x, Bx %04x, Cx %04x, Dx %04x, Es %04x\n", Ax, Bx, Cx, Dx, Es); */
   level0(bios13);
   
   if ((Ax & 0xFF00) != 0 )
