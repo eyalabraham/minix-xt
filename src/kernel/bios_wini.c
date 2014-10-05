@@ -379,10 +379,12 @@ PRIVATE void w_init()
 
   int drive;
   struct wini *wn;
-
+#if NEWBIOS_MINIX
+  /* skip call */
+#else
   /* Enable real mode BIOS vectors. */
   enable_vectors();
-
+#endif
   /* Set the geometry of the drives */
   for (drive = 0; drive < nr_drives; drive++) {
 	(void) w_prepare(drive * DEV_PER_DRIVE);
@@ -406,7 +408,9 @@ PRIVATE void w_init()
   }
 }
 
-
+#if NEWBIOS_MINIX
+  /* remove this code */
+#else
 /*===========================================================================*
  *				enable_vectors				     *
  *===========================================================================*/
@@ -454,7 +458,7 @@ PRIVATE void enable_vectors()
 
   if (ps_mca) clock_handler[6]= 0;	/* (PS/2 port B clock ack) */
 }
-
+#endif
 
 /*============================================================================*
  *				w_geometry				      *

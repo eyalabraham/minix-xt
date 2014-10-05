@@ -38,10 +38,12 @@ U16_t parmoff, parmsize;	/* boot parameters offset and length */
   data_base = seg2phys(ds);
   mcode_base = seg2phys(mcs);
   mdata_base = seg2phys(mds);
-
+#if NEWBIOS_MINIX
+  /* no initialization required */
+#else
   /* Initialize protected mode descriptors. */
   prot_init();
-
+#endif
   /* Copy the boot parameters to kernel memory. */
   if (parmsize > sizeof k_environ - 2) parmsize = sizeof k_environ - 2;
   phys_copy(mdata_base + parmoff, vir2phys(k_environ), (phys_bytes) parmsize);

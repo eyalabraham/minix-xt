@@ -409,6 +409,7 @@ tty_t *tp;
   { /* hook into the new xt hardware interrupt for UART */
     put_irq_handler(NEWXT_KBD_IRQ, kbd_hw_int);	/* set the interrupt handler */
     enable_irq(NEWXT_KBD_IRQ);	/* safe now everything initialised! */
+    out_byte(0x60, 0xff);       /* safe to write to this location to blank 7-seg */
   }
   else
   {

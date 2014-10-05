@@ -1127,6 +1127,9 @@ register struct proc *rp;
   int privilege;
 
   if (protected_mode) {
+#if NEWBIOS_MINIX
+  /* remove below code */
+#else
 	data_bytes = (phys_bytes) (rp->p_map[S].mem_vir + rp->p_map[S].mem_len)
 	             << CLICK_SHIFT;
 	if (rp->p_map[T].mem_len == 0)
@@ -1148,6 +1151,7 @@ register struct proc *rp;
 	rp->p_reg.ss =
 	rp->p_reg.es =
 	rp->p_reg.ds = (DS_LDT_INDEX*DESC_SIZE) | TI | privilege;
+#endif /* NEWBIOS_MINIX */
   } else {
 	rp->p_reg.cs = click_to_hclick(rp->p_map[T].mem_phys);
 	rp->p_reg.ss =

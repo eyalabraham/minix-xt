@@ -47,6 +47,14 @@ int mine;
   int i;
 
   lock();
+#if NEWBIOS_MINIX
+    /* Use the BIOS interrupt vectors in real mode.  We only reprogram the
+	 * exceptions here, the interrupt vectors are reprogrammed on demand.
+	 * SYS_VECTOR is the Minix system call for message passing.
+	 */
+	for (i = 0; i < 8; i++) set_vec(i, int_vec[i]);
+	set_vec(SYS_VECTOR, s_call);
+#else
   if (protected_mode) {
 	/* The AT and newer PS/2 have two interrupt controllers, one master,
 	 * one slaved at IRQ 2.  (We don't have to deal with the PC that
@@ -72,7 +80,7 @@ int mine;
 	for (i = 0; i < 8; i++) set_vec(i, int_vec[i]);
 	set_vec(SYS_VECTOR, s_call);
   }
-
+#endif
   /* Initialize the table of interrupt handlers. */
   for (i = 0; i < NR_IRQ_VECTORS; i++) irq_table[i] = spurious_irq;
 }
@@ -112,7 +120,11 @@ irq_handler_t handler;
 	panic("attempt to register second irq handler for irq", irq);
 
   disable_irq(irq);
+#if NEWBIOS_MINIX
+  set_vec(BIOS_VECTOR(irq), irq_vec[irq]);
+#else
   if (!protected_mode) set_vec(BIOS_VECTOR(irq), irq_vec[irq]);
+#endif
   irq_table[irq]= handler;
   irq_use |= 1 << irq;
 }

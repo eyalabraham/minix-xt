@@ -6,7 +6,7 @@
 
 #if (NEWBIOS_MINIX)
 #define OS_RELEASE "2.0"
-#define OS_VERSION "0.NB"
+#define OS_VERSION "0.NBc6"
 #else
 /* Minix release and version numbers. */
 #define OS_RELEASE "2.0"
