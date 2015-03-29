@@ -5,15 +5,250 @@ This is really not a true 'port' of Minix, but rather an adaptation of Minix to 
 - a 40GB IDE hard drive driven by a 8255. The hard drive hosts 2 x 1.44MB floppies and one 2GB fixed disk.
 - custom serial UART that replaces both the display adapter and keyboard; interface through minicom that is a VT100 emulator on Linux
 
-The motherboard does not have any serial not parallel interfaces, and has 640KB of RAM and is fully functional to boot and run DOS 6.22.
+The motherboard does not have any serial nor parallel interfaces, and has 640KB of RAM and is fully functional to boot and run DOS 6.22.
 
-I will log the activity and changes I make to the Minix kernel code and my BIOS in chronological order.
+Activity and changes I made to the Minix kernel code and my BIOS in chronological order:
+
+================================
+=   Minix change for newbios   =
+================================
+
+config.h changes
+--------------------------------
+1. console count to 1, rs232 to 0 and pty to 0
+2. HDD handling only through BIOS
+3. added 1 x PTY
+
+todo
+1. <nothing>
+
+Console driver
+--------------------------------
+
+tty, console (screen), keyboard, pty and serial device initialization process
+
+ start scheduler   -> tty_task() -> tty_init() -> scr_init() -or- rs_init() -or- pty_init()
+                                                     |
+                                                     +-->  kb_init() 
+                                                       only from scr_init()
+
+   mpx88.s              tty.c         tty.c         console.c        rs232.c         pty.c
+\................/    \......../    \........./  \............./  \........../  \............./
+                                                    keyboard.c
+                                                 \............./
+                                                   one of the above will be called
+                                                   depending on NR_CONS and NR_RS_LINES
+                                                   with NR_CONS=1 and NR_RS_LINES=0 only
+                                                   the screen and keyboard will be initialized
+Modifications done in steps as follows:
+
+console.c
+1. flush() updated to send characters through INT10h
+2. out_char() updated to handle character codes for vt100 emulator
+3. bypass all CRT chip HW code
+
+klib88.s
+1. added int10
+2. added registers
+
+proto.h
+1. added int10 prototype
+
+todo
+1. need to take another look at 'tab' and other special key handling
+2. check escape code and color print on vt100 console emulator
+
+Keyboard driver
+--------------------------------
+
+keyboard.c
+1. keyboard handling depends on interrupts. when a keyboard interrupt occurs,
+   the keyboard handler captures the key stroke *and* signals tty for processing
+   using int16 is not possible because a polling mechanism cannot be integrated.
+   so decisions for handling are done in run-time based on global flag 'isNewXT'
+   a. hooking new XT interrupt vector vs. PC vector
+   b. reading PC keyboard HW vs. reading UART
+   c. handling PC scan-code vs. ASCII in new XT
+2. allowing function wreboot() to run to enable 'reboot' and 'halt' processing
+
+const.h
+1. added interrupt vector number for new XT hardware with UART
+
+todo
+1. <nothing>
+
+Floppy drive driver
+--------------------------------
+
+kernel/floppy.c      kernel/driver.c                              kernel/floppy.c
+
+floppy_task()    ->  driver_task()    ->  ... do_rdwt()  ->  (1) f_prepare(), (2) f_schedule(), (3) f_finish() -> f_transfer()
+
+                    \................................./      \.............................................................../
+                     loop and wait for driver commands             called by do_rdwt()
+                      open/close/read/write/ioctl etc.
+                      
+                            \................................................................................................/
+                                                                 driver loop
+floppy.c
+1. Commented all floppy controller HW port commands
+2. replaced DMA+Controller IO process with INT13 based call in f_transfer()
+3. Removed seek and calibration process, now returning fake good status
+
+todo
+1. <nothing>
+
+/******* created test image, git tag: "minix-boot-v1c.img" *******/
+
+System setup
+--------------------------------
+1. copy directories from ROOT.img to the new boot image.
+   for directory /usr, no need to copy contents
+2. bring up in a VM and run MAKEDEV for the devices we need inside the /dev directory
+3. load above image to XT into fd0 (alt.0 location)
+4. load basic /usr from USR.img to XT into fd1
+5. after monitor starts, his ESC and change 'rootdev' to fd0 and save
+4. unset 'processor' 'bus' and 'emssize', then save again
+5. continue boot and when asked for /usr mount enter fd1
+6. system will boot and need to enter user 'root'
+7. hard drive partitioning ...
+           /dev/hd0    Whole hard disk #0
+              /dev/hd1    Keep a 50MB DOS partition (type 06h)
+              /dev/hd2    MINIX /usr partition (50MB)
+              /dev/hd3    MINIX /home partition  (50MB)
+8. follow "5. MANUAL INSTALLATION" section in minix-annotated-vm-installation
+   - change rootdev to /fd1 for these next steps, then change back to /fd0
+   - load usr.taz into /usr, sys.taz into /usr file parts in /home
+   - optional cmd.taz file parts in /home
+   - use 'vol', better to use 'dd'
+   - unpack: 'cat xxx.taz | uncompress | tar xvfp - ' into proper dir
+     usr.taz and sys.taz go into /usr
+   - fix /etc/fstab to include root and usr definitions, and reset boot monitor 'rootdev' to /fd0
+   - update /etc/rc startup shell to mount /dev/hd3 as /home
+   - modify: /etc/issue, /etc/rc, /etc/fstab
+   - echo "minix-xt" >/etc/hostname.file
+
+Disable printer driver
+--------------------------------
+
+1. Changes in printer_task();
+
+PUBLIC void printer_task()
+{
+/* Main routine of the printer task. */
+
+  message pr_mess;		/* buffer for all incoming messages */
+  
+#if NEWXT_BIOS
+  /* commenting out the initialization */
+#else
+  print_init();		/* initialize */
+#endif
+
+  while (TRUE) {
+	receive(ANY, &pr_mess);
+	reply(TASK_REPLY, pr_mess.m_source, pr_mess.PROC_NR, EINVAL);
+#if NEWXT_BOOS
+  /* all requests will be ignored */
+#else
+	switch(pr_mess.m_type) {
+	    case DEV_OPEN:
+	    case DEV_CLOSE:
+		reply(TASK_REPLY, pr_mess.m_source, pr_mess.PROC_NR, OK);
+		break;
+	    case DEV_WRITE:	do_write(&pr_mess);	break;
+	    case CANCEL   :	do_cancel(&pr_mess);	break;
+	    case HARD_INT :	do_done();		break;
+	    default:
+		reply(TASK_REPLY, pr_mess.m_source, pr_mess.PROC_NR, EINVAL);
+	}
+#endif
+  }
+}
+
+todo
+1. <nothing>
+
+Remove protected mode code
+--------------------------------
+
+  ? : may need to change
+  + : code chages
+ nc : no need for code change
+
+Protected mode code locations:
+  ? boothead.s
+  + bios_wini.c      remove enable_vectors() and associated call
+ nc console.c        no need to change, already removed with NEWBIOS_MINIX definition
+ nc dp8390.c         no need to change, already removed with ENABLE_NETWORKING definition
+  ? glo.h            may need to remove external variables: 'protected_mode' and 'struct segdesc_s gdt[]'
+  + i8259.c          removed in put_irq_handler() and intr_init()
+ nc keyboard.c       no need to change, already removed with NEWBIOS_MINIX definition
+  ? klib88.c         to complicated to remove
+ nc memory.c         very little code, no need to bother
+ nc misc.c           very little code, no need to bother
+  ? mpx88.s          to complicated to remove
+  ? protect.c / .h   initialization code for protected mode, to complicated to remove
+  ? proto.h          to complicated to remove
+  + start.c          skipped call to prot_init(), but let setting of 'protected_mode' variable
+  + system.c         conditional compiled some code
+ nc tty.c            very little code, no need to bother
+ nc type.h           letf type definitions intact
+
+1. updated files above
+2. left variable 'protected_mode' defined because not all code was removed
+3. results of last builds (not really worth the time):
+   
+    kernel  text   data  minix  free mem                                        image
+   -------------  ----- ------ ---------                                    ------------------ 
+                          185K      454K original Minix as-is
+           32672   5080   176K      464K (printer driver removal)       --> minix-boot-v1d.img
+           31360   4928   175K      463K (protected mode removal)       --> minix-boot-v1f.img
+
+================================
+=  Minix initialization order  =
+================================
+
+- 'bootimage.c' is called by the boot loader
+- 'bootimage.c' loads the image from disk
+- 'bootimage.c' function exec_image() parses the image for kernel, mm, fs, init components
+  and patches memory sizes into kernel data segment (see 'mpx88.s' _sizes array)
+- 'bootimage.c' starts minix with a call to minix() located in 'mpx88.s'
+- 'mpx88.s' is the minix entry point. it initializes parameters and jumps to main() in 'main.c'
+- 'main.c' does
+  1. clearing process table
+  2. parsing 'tasktab[]' that is located in 'table.c' to build the process table:
+  p_reg.pc gets initial pc program counter
+- scheduler is started and executes tasks in order from process table using a fake 'iret'
+
+boot loader --> bootimage.c --> mpx88.s/MINIX() --> main.c --> mpx88.s/_restart()
+
+================================
+=   Console output process     =
+================================
+
+printf() in MM
+--------------------------------
+
+printf() -> printk()           -> putk() -> flush() -> sendrec()               -> int(20h) -> sys_call() -> TTY(DEV_WRITE) do_write() -> cons_write() -> out_char()/flush()
+
+   macro   lib/other/printk.c    putk.c    putk.c      lib/i86/rts/_sendrec.s    mpx88.s     kernel/proc.c     kernel/tty.c               kernel/console.c
 
 
-January ?, 2014
-Monitor bring-up after cleaning INT10 warnings ...
-Kernel rebuild and image creation for full boot ...
+printf() in FS
+--------------------------------
 
+printf() -> printk()           -> putk() -> flush() -> call_task() -> sendrec()              -> int(20h) -> sys_call() -> TTY(DEV_WRITE) do_write()
+
+   macro   lib/other/printk.c    putk.c    putk.c     fs/device.c    lib/i86/rts/_sendrec.s     mpx88.s    kernel/proc.c      kernel/tty.c
+
+
+Kernel
+--------------------------------
+
+printf() -> printk()           -> putk() -> out_char() -> flush() -> level0() -> int(13h)
+
+            lib/other/printk.c    console.c  console.c    console.c   klib88.s    klib88.s 
 
 
 January 5, 2014
